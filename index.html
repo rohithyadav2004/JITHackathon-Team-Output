@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradingView Chart with Sentiment Integration</title>
+    <style>
+        /* ... previous styles remain the same ... */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f4f4f4;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+
+        header {
+            width: 100%;
+            background-color: #2b2b2b;
+            color: white;
+            text-align: center;
+            padding: 1em 0;
+        }
+
+        .container {
+            width: 100%;
+            height: calc(100vh - 80px);
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .input-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            padding: 0 20px;
+        }
+
+        input[type="text"] {
+            width: 300px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #chart-container {
+            flex: 1;
+            width: 100%;
+            min-height: 0;
+            border: 1px solid #ddd;
+        }
+
+        .sentiment {
+            padding: 10px;
+            font-size: 1.2em;
+            color: #333;
+            text-align: center;
+        }
+
+        .positive { color: green; }
+        .negative { color: red; }
+        .neutral { color: gray; }
+        
+        .error {
+            color: #ff0000;
+            margin-top: 10px;
+        }
+
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+</head>
+
+<body>
+    <header>
+        <h1>TradingView Chart with Sentiment Integration</h1>
+    </header>
+    <div class="container">
+        <div class="input-container">
+            <input type="text" id="stock-input" placeholder="Enter Stock Symbol (e.g., AAPL, TSLA)" />
+            <button id="load-button" onclick="handleLoad()">Load Chart</button>
+        </div>
+        <div id="chart-container"></div>
+        <div id="sentiment-results" class="sentiment"></div>
+    </div>
+
+    <script>
+        // State management
+        const state = {
+            sentiment: null,
+            loading: false,
+            error: null,
+            currentSymbol: '',
+            widget: null
+        };
+
+        // setState function to handle state updates
+        function setState(newState) {
+            Object.assign(state, newState);
+            renderSentiment();
+        }
+
+        // Render function for sentiment
+        function renderSentiment() {
+            const sentimentElement = document.getElementById("sentiment-results");
+            
+            if (state.loading) {
+                sentimentElement.innerHTML = '<span class="loading">Analyzing sentiment...</span>';
+                return;
+            }
+
+            if (state.error) {
+                sentimentElement.innerHTML = `<span class="error">${state.error}</span>`;
+                return;
+            }
+
+            if (state.sentiment) {
+                const sentimentClass = state.sentiment.toLowerCase();
+                sentimentElement.innerHTML = `Sentiment for ${state.currentSymbol}: <span class="${sentimentClass}">${state.sentiment}</span>`;
+            } else {
+                sentimentElement.innerHTML = '';
+            }
+        }
+
+        async function handleLoad() {
+            const button = document.getElementById('load-button');
+            const stockSymbol = document.getElementById("stock-input").value.toUpperCase();
+            
+            if (!stockSymbol) {
+                alert("Please enter a stock symbol.");
+                return;
+            }
+
+            // Update state
+            setState({
+                loading: true,
+                error: null,
+                sentiment: null,
+                currentSymbol: stockSymbol
+            });
+
+            // Disable button while loading
+            button.disabled = true;
+            button.textContent = 'Loading...';
+
+            try {
+                // First load the chart
+                await loadChart(stockSymbol);
+                // Then fetch sentiment
+                await fetchSentiment(stockSymbol);
+            } catch (error) {
+                console.error('Error:', error);
+                setState({
+                    error: 'Error loading data. Please try again.',
+                    loading: false
+                });
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Load Chart';
+            }
+        }
+
+        function loadChart(stockSymbol) {
+            return new Promise((resolve) => {
+                // Clear previous chart
+                document.getElementById("chart-container").innerHTML = "";
+
+                // Create new widget
+                state.widget = new TradingView.widget({
+                    symbol: stockSymbol,
+                    container_id: "chart-container",
+                    width: "100%",
+                    height: "100%",
+                    interval: "D",
+                    timezone: "Etc/UTC",
+                    theme: "light",
+                    style: "1",
+                    toolbar_bg: "#f1f3f6",
+                    withdateranges: true,
+                    hide_side_toolbar: false,
+                    allow_symbol_change: true,
+                    save_image: false,
+                    studies: ["MACD@tv-basicstudies"],
+                    locale: "en",
+                    enable_publishing: false,
+                    autosize: true,
+                    overrides: {
+                        "mainSeriesProperties.showCountdown": true,
+                    },
+                    onChartReady: () => {
+                        console.log("Chart Ready");
+                        resolve();
+                    }
+                });
+            });
+        }
+
+        async function fetchSentiment(stockSymbol) {
+            console.log('Fetching sentiment for:', stockSymbol);
+            const sentimentElement = document.getElementById("sentiment-results");
+            sentimentElement.innerHTML = "Analyzing sentiment...";
+
+            try {
+                const response = await fetch('http://127.0.0.1:5000/sentiment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ stock: stockSymbol })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Sentiment data:', data);
+
+                setState({
+                    sentiment: data.sentiment,
+                    loading: false,
+                    error: null
+                });
+            } catch (error) {
+                console.error('Error fetching sentiment:', error);
+                setState({
+                    error: 'Error fetching sentiment. Please try again.',
+                    loading: false
+                });
+                throw error;
+            }
+        }
+
+        // Initial render
+        renderSentiment();
+    </script>
+</body>
+
+</html>
